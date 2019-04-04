@@ -1,0 +1,598 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: CFN for MSSQL RDS.
+
+Parameters:
+  vpc:
+    Description: Select VPC
+    Type: 'AWS::EC2::VPC::Id'
+
+  subnetA:
+    Description: Select Subnet for DB subnet Group
+    Type: 'AWS::EC2::Subnet::Id'
+
+  subnetB:
+    Description: Select Subnet for DB subnet Group
+    Type: 'AWS::EC2::Subnet::Id'
+
+  DBAvailabilityZone:
+    Default: ap-southeast-2a
+    Type: String
+    Description: Database admin account name
+
+  DatabaseUser:
+    Default: boraldba
+    Type: String
+    Description: Database admin account name
+    MinLength: 5
+    MaxLength: 16
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: Name must begin with a letter and contain only alphanumeric characters
+
+  DatabasePassword:
+    NoEcho: true
+    Default: Boral123
+    Type: String
+    Description: Database admin account password
+    MinLength: 6
+    MaxLength: 41
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: Password must contain only alphanumeric characters
+
+  DatabaseName:
+    Default: BoralDB
+    Type: String
+    Description: Database name
+    MinLength: 1
+    MaxLength: 30
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: Name must begin with a letter and contain only alphanumeric characters
+
+  DatabaseSize:
+    Default: 200
+    Type: Number
+    Description: Database storage size in gigabytes (GB)
+    MinValue: 200
+    ConstraintDescription: Enter a size of at least 5 GB
+
+  rdsdbenginversion:
+    Description: Select db version
+    Default: 11.00.7462.6.v1
+    Type: String
+
+  AwsActiveDirectoryID:
+    Description: Directory ID of AWS AD
+    Default: d-976726aba3
+    Type: String
+
+  DatabaseAlarmMinFreeSpaceInBytes:
+    Default: 4294967296
+    Type: Number
+    Description: Number of min free space bytes for alarm (if enabled)
+    MinValue: 1
+    ConstraintDescription: A value of one byte or more
+
+  DatabaseAlarmSwapUsageInBytes:
+    Default: 1048576000
+    Type: Number
+    Description: Number of swap usage bytes for alarm (if enabled)
+    MinValue: 1
+    ConstraintDescription: A value of one byte or more
+
+  DbEngineType:
+    Description: Select ms RDS DB engine
+    Type: String
+    AllowedValues:
+      - sqlserver-ee
+      - sqlserver-se
+      - sqlserver-ex
+      - sqlserver-web
+
+  DbMajorEngineVersion:
+    Default: 11.0
+    Type: String
+    Description: Database engines major version for MSSQL
+    ConstraintDescription: Choose an major engine version from the drop down
+
+  rdsProvisionIOPS:
+    Description: Provide PIOPs
+    Type: String
+    ConstraintDescription: '[0-9]+'
+    Default: 1000
+
+  RdsStorageType:
+    Description: Select RDS storage type
+    AllowedValues:
+      - gp2
+      - io1
+    Type: String
+    Default: gp2
+
+  EncryptionAtRest:
+    Default: false
+    Type: String
+    Description: The optional flag for encryption at rest (db.t2.small and above)
+    ConstraintDescription: Only true or false are allowed
+    AllowedValues:
+      - true
+      - false
+
+  DatabaseInstanceClass:
+    Default: db.t2.medium
+    Type: String
+    Description: >-
+      Database instance class, e.g. db.t2.micro (free tier) - Engine support:
+      https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.DBInstanceClass.html
+    ConstraintDescription: DB instance class not supported
+    AllowedValues:
+      - db.t2.micro
+      - db.t2.small
+      - db.t2.medium
+      - db.t2.large
+      - db.t2.xlarge
+      - db.t2.2xlarge
+      - db.m4.large
+      - db.m4.xlarge
+      - db.m4.2xlarge
+      - db.m4.4xlarge
+      - db.m4.10xlarge
+      - db.m4.16xlarge
+      - db.r4.large
+      - db.r4.xlarge
+      - db.r4.2xlarge
+      - db.r4.4xlarge
+      - db.r4.8xlarge
+      - db.r4.16xlarge
+
+  EnvironmentName:
+    Description: 'Environment name, either prod or non-prod'
+    Type: String
+    Default: non-prod
+    AllowedValues:
+      - prod
+      - non-prod
+    ConstraintDescription: Specify either Prod or Non-Prod
+
+  DeploymentType:
+    Description: 'Deployment type, single or multi-az'
+    Type: String
+    Default: false
+    AllowedValues:
+      - true
+      - false
+    ConstraintDescription: Specify either true or false
+
+  DatabaseAlarmMaxCpuPercent:
+    Description: Database CPU % max for alarm
+    Type: Number
+    Default: 80
+    MinValue: 1
+    MaxValue: 99
+    ConstraintDescription: Must be a percentage between 1-99%
+
+  DatabaseAlarmReadLatencyMaxSeconds:
+    Description: Read latency max for alarm
+    Type: Number
+    Default: 1
+    MinValue: 1
+
+  DatabaseAlarmWriteLatencyMaxSeconds:
+    Description: Write latency max for alarm
+    Type: Number
+    Default: 1
+    MinValue: 1
+
+  DatabaseAlarmEvaluationPeriods:
+    Description: >-
+      The number of periods over which data is compared to the specified
+      threshold
+    Type: Number
+    Default: 2
+    MinValue: 2
+
+  DatabaseAlarmEvaluationPeriodSeconds:
+    Description: >-
+      The time over which the specified statistic is applied. Specify time in
+      seconds, in multiples of 60. Enhanced monitoring must be enabled if less
+      than 500 seconds
+    Type: Number
+    Default: 300
+    MinValue: 60
+    ConstraintDescription: Must be at least 60 seconds
+
+  EnhancedMonitoring:
+    Default: false
+    Type: String
+    Description: >-
+      The optional flag for enhanced monitoring (additional charges apply -
+      https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_Monitoring.OS.html)
+    ConstraintDescription: Only true or false are allowed
+    AllowedValues:
+      - true
+      - false
+
+
+  EnableAlarms:
+    Default: false
+    Type: String
+    Description: >-
+      Set to true to enable (additional charges -
+      https://aws.amazon.com/cloudwatch/pricing/)
+    ConstraintDescription: Only true or false are allowed
+    AllowedValues:
+      - true
+      - false
+
+Conditions:
+  IsProd: !Equals
+    - !Ref EnvironmentName
+    - prod
+  AlarmsEnabled: !Equals
+    - !Ref EnableAlarms
+    - true
+  EnhancedMonitoringSupprtedAndEnabled: !And
+    - !Condition AlarmsEnabled
+    - !Equals
+      - !Ref EnhancedMonitoring
+      - true
+    - !Not
+      - !Equals
+        - !Ref DatabaseInstanceClass
+        - db.m1.small
+  StorageType1: !Equals
+    - !Ref RdsStorageType
+    - io1
+  AWSADAvailable: !Not
+    - !Equals
+      - !Ref AwsActiveDirectoryID
+      - AWS:Null
+
+Resources:
+  EnhancedMonitoringRole:
+    Type: 'AWS::IAM::Role'
+    Condition: EnhancedMonitoringSupprtedAndEnabled
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: monitoring.rds.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole'
+
+  DomainAccessRole:
+    Type: 'AWS::IAM::Role'
+    Condition: AWSADAvailable
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: rds.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonRDSDirectoryServiceAccess'
+
+  DatabaseAlarmTopic:
+    Type: 'AWS::SNS::Topic'
+    Condition: AlarmsEnabled
+    Properties:
+      DisplayName: Database Alarm Topic
+
+  DatabaseSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: Database subnet group
+      SubnetIds:
+        - !Ref subnetA
+        - !Ref subnetB
+      Tags:
+        - Key: Name
+          Value: !Ref 'AWS::StackName'
+
+  RdsSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupName: !Ref 'AWS::StackName'
+      GroupDescription: Security Group for RDS instance
+      Tags:
+        - Key: Name
+          Value: !Join
+            - _
+            - - !Ref 'AWS::StackName'
+              - security_group
+      VpcId: !Ref vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          ToPort: '1433'
+          FromPort: '1433'
+          CidrIp: 10.0.0.0/8
+
+  rdsoptiongorup:
+    Type: 'AWS::RDS::OptionGroup'
+    Properties:
+      EngineName: !Ref DbEngineType
+      MajorEngineVersion: !Join
+        - ''
+        - - !Ref DbMajorEngineVersion
+          - 0
+      OptionGroupDescription: !Join
+        - ' '
+        - - DB option group for
+          - !Ref 'AWS::StackName'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - _
+            - - !Ref 'AWS::StackName'
+              - !Ref DbEngineType
+              - !Ref DbMajorEngineVersion
+
+  rdsparametergroup:
+    Type: 'AWS::RDS::DBParameterGroup'
+    Properties:
+      Description: !Join
+        - ' '
+        - - DB parameter group for
+          - !Ref 'AWS::StackName'
+      Family: !Join
+        - '-'
+        - - !Ref DbEngineType
+          - !Ref DbMajorEngineVersion
+      Tags:
+        - Key: Name
+          Value: !Join
+            - _
+            - - !Ref 'AWS::StackName'
+              - !Ref DbEngineType
+              - !Ref DbMajorEngineVersion
+
+  Database:
+    Type: 'AWS::RDS::DBInstance'
+    Properties:
+      AllocatedStorage: !Ref DatabaseSize
+      AllowMajorVersionUpgrade: 'false'
+      AutoMinorVersionUpgrade: 'false'
+      BackupRetentionPeriod: '35'
+      CopyTagsToSnapshot: 'true'
+      DBInstanceClass: !Ref DatabaseInstanceClass
+      DBInstanceIdentifier: !Ref DatabaseName
+      DBParameterGroupName: !Ref rdsparametergroup
+      VPCSecurityGroups:
+        - !Ref RdsSecurityGroup
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      AvailabilityZone: !If
+        - IsProd
+        - !Ref 'AWS::NoValue'
+        - !Ref DBAvailabilityZone
+      Engine: !Ref DbEngineType
+      EngineVersion: !Ref rdsdbenginversion
+      #KmsKeyId: !Ref RDSOracleKMSKey
+      LicenseModel: license-included
+      MasterUsername: !Ref DatabaseUser
+      MasterUserPassword: !Ref DatabasePassword
+      MonitoringInterval: 60
+      MultiAZ: !Ref DeploymentType
+      OptionGroupName: !Ref rdsoptiongorup
+      Iops: !If
+        - StorageType1
+        - !Ref rdsProvisionIOPS
+        - !Ref 'AWS::NoValue'
+      Port: 1433
+      PreferredBackupWindow: '14:30-15:30'
+      PreferredMaintenanceWindow: 'Sun:16:30-Sun:17:30'
+      PubliclyAccessible: 'false'
+      StorageEncrypted: 'false'
+      MonitoringInterval: !If
+        - EnhancedMonitoringSupprtedAndEnabled
+        - 60
+        - 0
+      MonitoringRoleArn: !If
+        - EnhancedMonitoringSupprtedAndEnabled
+        - !GetAtt EnhancedMonitoringRole.Arn
+        - !Ref 'AWS::NoValue'
+      StorageType: !Ref RdsStorageType
+      Domain: !If
+        - AWSADAvailable
+        - !Ref AwsActiveDirectoryID
+        - !Ref 'AWS::NoValue'
+      DomainIAMRoleName: !If
+        - AWSADAvailable
+        - !Ref DomainAccessRole
+        - !Ref 'AWS::NoValue'
+      Tags:
+        - Key: Name
+          Value: !Join
+            - _
+            - - !Ref 'AWS::StackName'
+              - rds_instance
+
+  RDSDNSRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref cfnostedzoneid
+      Comment: DNS name for my instance.
+      Name: !Join ['', [!Ref Database, ., !Ref cfnHostedZone]]
+      Type: CNAME
+      TTL: '300'
+      ResourceRecords:
+        - !GetAtt Database.Endpoint.Address
+
+  RDSSecretKey:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: !Join
+        - _
+        - - !Ref DatabaseName
+          - skey
+      Description: Sceret key for RDS instance
+      SecretString: !Join
+        - ' '
+        - - '{"password":'
+          - '"'
+          - !Ref DatabasePassword
+          - '"'
+          - '}'
+      Tags:
+        -
+          Key: RDSInstanceName
+          Value: !Ref DatabaseName
+
+  DatabaseCpuAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Condition: AlarmsEnabled
+    Properties:
+      AlarmDescription: !Sub >-
+        DB CPU utilization is over ${DatabaseAlarmMaxCpuPercent}% for
+        ${DatabaseAlarmEvaluationPeriods} period(s) of
+        ${DatabaseAlarmEvaluationPeriodSeconds} seconds
+      TreatMissingData: notBreaching
+      Namespace: AWS/RDS
+      MetricName: CPUUtilization
+      Unit: Percent
+      Statistic: Average
+      EvaluationPeriods: !Ref DatabaseAlarmEvaluationPeriods
+      Period: !Ref DatabaseAlarmEvaluationPeriodSeconds
+      Threshold: !Ref DatabaseAlarmMaxCpuPercent
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: DBInstanceIdentifier
+          Value: !Ref Database
+      AlarmActions:
+        - !Ref DatabaseAlarmTopic
+    DependsOn: Database
+
+  DatabaseFreeStorageSpaceAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Condition: AlarmsEnabled
+    Properties:
+      AlarmDescription: !Sub >-
+        DB free storage space is less than ${DatabaseAlarmMinFreeSpaceInBytes}
+        for ${DatabaseAlarmEvaluationPeriods} period(s) of
+        ${DatabaseAlarmEvaluationPeriodSeconds} seconds
+      TreatMissingData: notBreaching
+      Namespace: AWS/RDS
+      MetricName: FreeStorageSpace
+      Unit: Bytes
+      Statistic: Average
+      EvaluationPeriods: !Ref DatabaseAlarmEvaluationPeriods
+      Period: !Ref DatabaseAlarmEvaluationPeriodSeconds
+      Threshold: !Ref DatabaseAlarmMinFreeSpaceInBytes
+      ComparisonOperator: LessThanOrEqualToThreshold
+      Dimensions:
+        - Name: DBInstanceIdentifier
+          Value: !Ref Database
+      AlarmActions:
+        - !Ref DatabaseAlarmTopic
+    DependsOn: Database
+
+  DatabaseSwapUsageAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Condition: AlarmsEnabled
+    Properties:
+      AlarmDescription: !Sub >-
+        DB swap usage is greater than than ${DatabaseAlarmSwapUsageInBytes} for
+        ${DatabaseAlarmEvaluationPeriods} period(s) of
+        ${DatabaseAlarmEvaluationPeriodSeconds} seconds
+      TreatMissingData: notBreaching
+      Namespace: AWS/RDS
+      MetricName: SwapUsage
+      Unit: Bytes
+      Statistic: Average
+      EvaluationPeriods: !Ref DatabaseAlarmEvaluationPeriods
+      Period: !Ref DatabaseAlarmEvaluationPeriodSeconds
+      Threshold: !Ref DatabaseAlarmSwapUsageInBytes
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: DBInstanceIdentifier
+          Value: !Ref Database
+      AlarmActions:
+        - !Ref DatabaseAlarmTopic
+    DependsOn: Database
+
+  DatabaseReadLatencyAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Condition: AlarmsEnabled
+    Properties:
+      AlarmDescription: !Sub >-
+        DB read latency is over ${DatabaseAlarmReadLatencyMaxSeconds} for
+        ${DatabaseAlarmEvaluationPeriods} period(s) of
+        ${DatabaseAlarmEvaluationPeriodSeconds} seconds
+      TreatMissingData: notBreaching
+      Namespace: AWS/RDS
+      MetricName: ReadLatency
+      Unit: Seconds
+      Statistic: Average
+      EvaluationPeriods: !Ref DatabaseAlarmEvaluationPeriods
+      Period: !Ref DatabaseAlarmEvaluationPeriodSeconds
+      Threshold: !Ref DatabaseAlarmReadLatencyMaxSeconds
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: DBInstanceIdentifier
+          Value: !Ref Database
+      AlarmActions:
+        - !Ref DatabaseAlarmTopic
+    DependsOn: Database
+
+  DatabaseWriteLatencyAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Condition: AlarmsEnabled
+    Properties:
+      AlarmDescription: !Sub >-
+        DB write latency is over ${DatabaseAlarmWriteLatencyMaxSeconds} for
+        ${DatabaseAlarmEvaluationPeriods} period(s) of
+        ${DatabaseAlarmEvaluationPeriodSeconds} seconds
+      TreatMissingData: notBreaching
+      Namespace: AWS/RDS
+      MetricName: WriteLatency
+      Unit: Seconds
+      Statistic: Average
+      EvaluationPeriods: !Ref DatabaseAlarmEvaluationPeriods
+      Period: !Ref DatabaseAlarmEvaluationPeriodSeconds
+      Threshold: !Ref DatabaseAlarmWriteLatencyMaxSeconds
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: DBInstanceIdentifier
+          Value: !Ref Database
+      AlarmActions:
+        - !Ref DatabaseAlarmTopic
+    DependsOn: Database
+
+Outputs:
+  Name:
+    Description: RDS Stack Name
+    Value: !Ref 'AWS::StackName'
+    Export:
+      Name: !Sub '${AWS::StackName}-Name'
+  RdsDbId:
+    Description: RDS Database ID
+    Value: !Ref Database
+    Export:
+      Name: !Sub '${AWS::StackName}-DatabaseID'
+  RdsDbURL:
+    Description: RDS Database URL
+    Value: !GetAtt Database.Endpoint.Address
+    Export:
+      Name: !Sub '${AWS::StackName}-DatabaseURL'
+  DbUser:
+    Description: RDS Database admin account user
+    Value: !Ref DatabaseUser
+    Export:
+      Name: !Sub '${AWS::StackName}-DatabaseUser'
+  DatabaseAlarmTopicArn:
+    Description: Database Alarm Topic ARN
+    Condition: AlarmsEnabled
+    Value: !Ref DatabaseAlarmTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-DatabaseAlarmTopicArn'
+
+  DatabaseAlarmTopicName:
+    Description: Database Alarm Topic Name
+    Condition: AlarmsEnabled
+    Value: !GetAtt DatabaseAlarmTopic.TopicName
+    Export:
+      Name: !Sub '${AWS::StackName}-DatabaseAlarmTopicName'
